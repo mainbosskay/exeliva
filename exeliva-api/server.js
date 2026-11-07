@@ -2,7 +2,7 @@ import express from "express";
 import prisma from "./db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import authenticateToken from "./authMiddleware.js";
+import authenticateToken from "./src/middleware/authMiddleware.js";
 
 const app = express();
 const PORT = 3000;
@@ -234,6 +234,107 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
     });
   }
 });
+
+
+
+ // Get all job applications for the logged-in user
+ app.get("/api/applications", authenticateToken, async (req, res) => {
+  try {
+    const applications = await prisma.jobApplication.findMany({
+      where: {
+        userId: req.user.userId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return res.json({
+      success: true,
+      count: applications.length,
+      applications,
+    });
+  } catch (error) {
+    console.error("Get applications failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to retrieve job applications",
+    });
+  }
+});
+
+
+ // Update a job application's status
+ app.patch("/api/applications/:id/status", authenticateToken, async (req, res) => {
+  try {
+    const applicationId = Number(req.params.id);
+    const { status } = req.body;
+
+    const allowedStatuses = [
+      "SAVED",
+      "APPLIED",
+      "INTERVIEWING",
+      "OFFER",
+      "REJECTED",
+      "WITHDRAWN",
+    ];
+
+    if (!Number.isInteger(applicationId) || applicationId < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application ID",
+      });
+    }
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid application status",
+      });
+    }
+
+    const existingApplication = await prisma.jobApplication.findFirst({
+      where: {
+        id: applicationId,
+        userId: req.user.userId,
+      },
+    });
+
+    if (!existingApplication) {
+      return res.status(404).json({
+        success: false,
+        message: "Job application not found",
+      });
+    }
+
+    const application = await prisma.jobApplication.update({
+      where: {
+        id: applicationId,
+      },
+      data: {
+        status,
+        ...(status === "APPLIED" && !existingApplication.appliedAt
+          ? { appliedAt: new Date() }
+          : {}),
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Job application status updated successfully",
+      application,
+    });
+  } catch (error) {
+    console.error("Update application status failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update job application status",
+    });
+  }
+});
+
 
 // Start the server
 app.listen(PORT, () => {
